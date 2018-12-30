@@ -75,7 +75,7 @@ func TestFormatPacketTCP(t *testing.T) {
 	}
 
 	for _, table := range tables {
-		got := formatPacketTCP(table.tcp, table.src, table.dst, table.length)
+		got := formatPacketTCP(nil, table.tcp, table.src, table.dst, table.length)
 		if got != table.expected {
 			t.Errorf("formatPacketTCP was incorrect, got: '%s', expected: '%s'.", got, table.expected)
 		}

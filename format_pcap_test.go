@@ -30,6 +30,7 @@ func getFormatPacketOutput(filename string) string {
 	}
 	out := ""
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
+	packetSource.DecodeOptions = gopacket.DecodeStreamsAsDatagrams
 	for packet := range packetSource.Packets() {
 		if net := packet.NetworkLayer(); net != nil {
 			switch net.LayerType() {

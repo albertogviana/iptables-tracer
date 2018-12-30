@@ -3,12 +3,13 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
+	"strings"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 )
 
-func formatPacketTCP(tcp *layers.TCP, src, dst string, length int) string {
+func formatPacketTCP(packet *gopacket.Packet, tcp *layers.TCP, src, dst string, length int) string {
 	length = length - int(tcp.DataOffset)*4
 	flags := ""
 	if tcp.FIN {
@@ -91,6 +92,12 @@ func formatPacketTCP(tcp *layers.TCP, src, dst string, length int) string {
 		out += "]"
 	}
 	out += fmt.Sprintf(", length %d", length)
+	if tcp.DstPort == 21 || tcp.SrcPort == 21 {
+		if ftpLayer := (*packet).Layer(layers.LayerTypeFTP); ftpLayer != nil {
+			ftp, _ := ftpLayer.(*layers.FTP)
+			out += ": " + formatPacketFTP(ftp)
+		}
+	}
 	return out
 }
 
@@ -375,7 +382,7 @@ func formatPacketGRE(gre *layers.GRE, src, dst string, length int) string {
 		if gre.SeqPresent {
 			switch gre.Protocol {
 			case layers.EthernetTypePPP:
-				if pppLayer := gopacket.NewPacket(gre.LayerPayload(), layers.LayerTypePPP, gopacket.Default).Layer(layers.LayerTypePPP); pppLayer != nil {
+				if pppLayer := gopacket.NewPacket(gre.LayerPayload(), layers.LayerTypePPP, gopacket.DecodeStreamsAsDatagrams).Layer(layers.LayerTypePPP); pppLayer != nil {
 					ppp, _ := pppLayer.(*layers.PPP)
 					out = out + formatPacketPPP(ppp)
 				}
@@ -404,9 +411,26 @@ func formatPacketPPP(ppp *layers.PPP) string {
 	}
 }
 
+func formatPacketFTP(ftp *layers.FTP) string {
+	if ftp.IsResponse {
+		if ftp.Delimiter == "\n" {
+			return fmt.Sprintf("FTP: %d", ftp.ResponseCode)
+		} else {
+			statusLines := strings.Split(ftp.ResponseStatus, "\n")
+			return fmt.Sprintf("FTP: %d%s%s", ftp.ResponseCode, ftp.Delimiter, statusLines[0])
+		}
+	} else {
+		if ftp.Delimiter == "\n" {
+			return fmt.Sprintf("FTP: %s", ftp.Command)
+		} else {
+			return fmt.Sprintf("FTP: %s%s%s", ftp.Command, ftp.Delimiter, ftp.CommandArg)
+		}
+	}
+}
+
 func formatPacket(payload []byte, isIPv6 bool) string {
 	if isIPv6 {
-		packet := gopacket.NewPacket(payload, layers.LayerTypeIPv6, gopacket.Default)
+		packet := gopacket.NewPacket(payload, layers.LayerTypeIPv6, gopacket.DecodeStreamsAsDatagrams)
 		if ip6Layer := packet.Layer(layers.LayerTypeIPv6); ip6Layer != nil {
 			ip6, _ := ip6Layer.(*layers.IPv6)
 			length := int(ip6.Length)
@@ -419,7 +443,7 @@ func formatPacket(payload []byte, isIPv6 bool) string {
 			case layers.LayerTypeTCP:
 				if tcpLayer := packet.Layer(layers.LayerTypeTCP); tcpLayer != nil {
 					tcp, _ := tcpLayer.(*layers.TCP)
-					return "IP6 " + formatPacketTCP(tcp, ip6.SrcIP.String(), ip6.DstIP.String(), length)
+					return "IP6 " + formatPacketTCP(&packet, tcp, ip6.SrcIP.String(), ip6.DstIP.String(), length)
 				}
 			case layers.LayerTypeICMPv6:
 				if icmpLayer := packet.Layer(layers.LayerTypeICMPv6); icmpLayer != nil {
@@ -442,7 +466,7 @@ func formatPacket(payload []byte, isIPv6 bool) string {
 			return fmt.Sprintf("IP6 %s > %s: %s, length %d", ip6.SrcIP, ip6.DstIP, ip6.NextLayerType().String(), length)
 		}
 	} else {
-		packet := gopacket.NewPacket(payload, layers.LayerTypeIPv4, gopacket.Default)
+		packet := gopacket.NewPacket(payload, layers.LayerTypeIPv4, gopacket.DecodeStreamsAsDatagrams)
 		if ip4Layer := packet.Layer(layers.LayerTypeIPv4); ip4Layer != nil {
 			ip4, _ := ip4Layer.(*layers.IPv4)
 			length := int(ip4.Length) - int(ip4.IHL)*4
@@ -455,7 +479,7 @@ func formatPacket(payload []byte, isIPv6 bool) string {
 			case layers.LayerTypeTCP:
 				if tcpLayer := packet.Layer(layers.LayerTypeTCP); tcpLayer != nil {
 					tcp, _ := tcpLayer.(*layers.TCP)
-					return "IP " + formatPacketTCP(tcp, ip4.SrcIP.String(), ip4.DstIP.String(), length)
+					return "IP " + formatPacketTCP(&packet, tcp, ip4.SrcIP.String(), ip4.DstIP.String(), length)
 				}
 			case layers.LayerTypeICMPv4:
 				if icmpLayer := packet.Layer(layers.LayerTypeICMPv4); icmpLayer != nil {
